@@ -1,0 +1,6 @@
+-R . LF
+./core.v
+./unscoped.v
+./syntax.v
+./Definitions.v
+./Properties.v
