@@ -1,0 +1,7 @@
+-R . Fomega
+./Maps.v
+./core.v
+./unscoped.v
+./Syntax.v
+./Definitions.v
+./Properties.v
