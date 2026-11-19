@@ -1,0 +1,6 @@
+-R . Coc
+./core.v
+./unscoped.v
+./syntax.v
+./Definitions.v
+./Properties.v
