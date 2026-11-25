@@ -1,253 +1,111 @@
-From Stdlib Require Vectors.Fin.
-From Stdlib Require Vectors.Vector.
 From Stdlib Require Import List.
-Module V := Vector.
+From FSumProd Require Export Syntax.
+Require Import core unscoped.
 
-(* vector notations *)
-Declare Scope vec_scope.
-Notation "[ ]" := (V.nil _) : vec_scope.
-Notation "x ::: v" := (V.cons _ x _ v) (at level 60, right associativity) : vec_scope.
-Open Scope vec_scope.
+(* ---------- surface syntax, fomega_sumprod-style custom entries ---------- *)
 
-(* substitution plumbing (generic, nat-indexed) *)
+Declare Scope plc_scope.
+Open Scope plc_scope.
 
-Definition scons {X : Type} (x : X) (xi : nat -> X) : nat -> X :=
-  fun n => match n with 0 => x | S n' => xi n' end.
+Declare Custom Entry plc_ty.
+Declare Custom Entry plc_tm.
 
-Definition up_ren (xi : nat -> nat) : nat -> nat := scons 0 (fun n => S (xi n)).
+Notation "<{{ T }}>" := T (T custom plc_ty at level 99) : plc_scope.
 
-(* types: Prod/Sum carry a Vector.t ty p; Forall is the universal type *)
+Notation "x" := x (in custom plc_ty at level 0, x constr at level 0) : plc_scope.
+Notation "x" := x (in custom plc_tm at level 0, x constr at level 0) : plc_scope.
 
-Inductive ty : Type :=
-  | var_ty : nat -> ty
-  | TyArr : ty -> ty -> ty
-  | TyForall : ty -> ty
-  | TyProd (p : nat) : V.t ty p -> ty
-  | TySum (p : nat) : V.t ty p -> ty.
+Notation "( T )" := T (in custom plc_ty at level 0, T custom plc_ty at level 99) : plc_scope.
+Notation "T1 -> T2" := (TyArrow T1 T2) (in custom plc_ty at level 50, right associativity) : plc_scope.
+Notation "'-/,' T" := (TyForall T) (in custom plc_ty at level 90, T custom plc_ty at level 90) : plc_scope.
+Notation "'Unit'" := TyUnit (in custom plc_ty at level 0) : plc_scope.
+Notation "'Prod' Ts" := (TyProd Ts) (in custom plc_ty at level 10, Ts constr at level 0) : plc_scope.
+Notation "'Sum' Ts" := (TySum Ts) (in custom plc_ty at level 10, Ts constr at level 0) : plc_scope.
+Notation "{ T }" := T (in custom plc_ty at level 0, T constr at level 99, only parsing) : plc_scope.
 
-Fixpoint ren_ty (xi : nat -> nat) (T : ty) : ty :=
-  match T with
-  | var_ty n => var_ty (xi n)
-  | TyArr T1 T2 => TyArr (ren_ty xi T1) (ren_ty xi T2)
-  | TyForall T1 => TyForall (ren_ty (up_ren xi) T1)
-  | TyProd p Ts => TyProd p (V.map (ren_ty xi) Ts)
-  | TySum p Ts => TySum p (V.map (ren_ty xi) Ts)
-  end.
+Notation "<{ t }>" := t (t custom plc_tm at level 99) : plc_scope.
 
-Definition up_ty (sigma : nat -> ty) : nat -> ty :=
-  scons (var_ty 0) (fun n => ren_ty S (sigma n)).
+Notation "( t )" := t (in custom plc_tm at level 0, t custom plc_tm at level 99) : plc_scope.
+Notation "t1 t2" := (TmApp t1 t2) (in custom plc_tm at level 11, left associativity) : plc_scope.
+Notation "\: T ',' t" := (TmAbs T t) (in custom plc_tm at level 90, T custom plc_ty at level 99, t custom plc_tm at level 90) : plc_scope.
+Notation "t [ T ]" := (TmTApp t T) (in custom plc_tm at level 11, t custom plc_tm, T custom plc_ty at level 0) : plc_scope.
+Notation "'\\,' t" := (TmTAbs t) (in custom plc_tm at level 90, t custom plc_tm at level 90) : plc_scope.
+Notation "'unit'" := TmUnit (in custom plc_tm at level 0) : plc_scope.
+Notation "'tuple' ts" := (TmTuple ts) (in custom plc_tm at level 10, ts constr at level 0) : plc_scope.
+Notation "'proj' i t" := (TmProj i t) (in custom plc_tm at level 10, i constr at level 0, t custom plc_tm at level 0) : plc_scope.
+Notation "'inj' i t" := (TmInj i t) (in custom plc_tm at level 10, i constr at level 0, t custom plc_tm at level 0) : plc_scope.
+Notation "'case' t 'of' ts" := (TmCase t ts) (in custom plc_tm at level 90, t custom plc_tm at level 99, ts constr at level 0) : plc_scope.
+Notation "{ t }" := t (in custom plc_tm at level 0, t constr at level 99, only parsing) : plc_scope.
 
-Fixpoint subst_ty (sigma : nat -> ty) (T : ty) : ty :=
-  match T with
-  | var_ty n => sigma n
-  | TyArr T1 T2 => TyArr (subst_ty sigma T1) (subst_ty sigma T2)
-  | TyForall T1 => TyForall (subst_ty (up_ty sigma) T1)
-  | TyProd p Ts => TyProd p (V.map (subst_ty sigma) Ts)
-  | TySum p Ts => TySum p (V.map (subst_ty sigma) Ts)
-  end.
-
-(* deep induction principle for ty, mirroring tm_ind2 *)
-
-Fixpoint ty_ind2 (P : ty -> Prop)
-  (Hvar : forall n, P (var_ty n))
-  (Harr : forall T1 T2, P T1 -> P T2 -> P (TyArr T1 T2))
-  (Hforall : forall T1, P T1 -> P (TyForall T1))
-  (Hprod : forall p Ts, V.Forall P Ts -> P (TyProd p Ts))
-  (Hsum : forall p Ts, V.Forall P Ts -> P (TySum p Ts))
-  (T : ty) {struct T} : P T :=
-  match T with
-  | var_ty n => Hvar n
-  | TyArr T1 T2 => Harr T1 T2 (ty_ind2 P Hvar Harr Hforall Hprod Hsum T1)
-                             (ty_ind2 P Hvar Harr Hforall Hprod Hsum T2)
-  | TyForall T1 => Hforall T1 (ty_ind2 P Hvar Harr Hforall Hprod Hsum T1)
-  | TyProd p Ts =>
-      let fix allP {p0} (v : V.t ty p0) : V.Forall P v :=
-          match v in V.t _ p1 return V.Forall P v with
-          | [ ] => V.Forall_nil P
-          | T1 ::: v' =>
-              V.Forall_cons P T1 v'
-                (ty_ind2 P Hvar Harr Hforall Hprod Hsum T1)
-                (allP v')
-          end
-      in Hprod p Ts (allP Ts)
-  | TySum p Ts =>
-      let fix allP {p0} (v : V.t ty p0) : V.Forall P v :=
-          match v in V.t _ p1 return V.Forall P v with
-          | [ ] => V.Forall_nil P
-          | T1 ::: v' =>
-              V.Forall_cons P T1 v'
-                (ty_ind2 P Hvar Harr Hforall Hprod Hsum T1)
-                (allP v')
-          end
-      in Hsum p Ts (allP Ts)
-  end.
-
-(* terms: tyabs/tyapp add System F-style type abstraction/application *)
-
-Inductive tm : Type :=
-  | var_tm : nat -> tm
-  | abs : tm -> tm
-  | app : tm -> tm -> tm
-  | tyabs : tm -> tm
-  | tyapp : tm -> ty -> tm
-  | tuple : forall p, V.t tm p -> tm
-  | proj : forall p, Fin.t p -> tm -> tm
-  | inj : forall p, Fin.t p -> tm -> tm
-  | case : tm -> forall p, V.t tm p -> tm.
-
-(* ren_tm/subst_tm are two-sorted: a ty-renaming/substitution and a tm-renaming/substitution,
-   since tyapp embeds a ty inside a tm and tyabs opens a new ty-scope *)
-
-Fixpoint ren_tm (xi_ty xi_tm : nat -> nat) (t : tm) : tm :=
-  match t with
-  | var_tm n => var_tm (xi_tm n)
-  | abs t1 => abs (ren_tm xi_ty (up_ren xi_tm) t1)
-  | app t1 t2 => app (ren_tm xi_ty xi_tm t1) (ren_tm xi_ty xi_tm t2)
-  | tyabs t1 => tyabs (ren_tm (up_ren xi_ty) xi_tm t1)
-  | tyapp t1 T => tyapp (ren_tm xi_ty xi_tm t1) (ren_ty xi_ty T)
-  | tuple p ts => tuple p (V.map (ren_tm xi_ty xi_tm) ts)
-  | proj p i t1 => proj p i (ren_tm xi_ty xi_tm t1)
-  | inj p i t1 => inj p i (ren_tm xi_ty xi_tm t1)
-  | case t1 p fs => case (ren_tm xi_ty xi_tm t1) p (V.map (ren_tm xi_ty xi_tm) fs)
-  end.
-
-Definition up_tm (sigma_tm : nat -> tm) : nat -> tm :=
-  scons (var_tm 0) (fun n => ren_tm id S (sigma_tm n)).
-
-Definition shift_ty_tm (sigma_tm : nat -> tm) : nat -> tm :=
-  fun n => ren_tm S id (sigma_tm n).
-
-Fixpoint subst_tm (sigma_ty : nat -> ty) (sigma_tm : nat -> tm) (t : tm) : tm :=
-  match t with
-  | var_tm n => sigma_tm n
-  | abs t1 => abs (subst_tm sigma_ty (up_tm sigma_tm) t1)
-  | app t1 t2 => app (subst_tm sigma_ty sigma_tm t1) (subst_tm sigma_ty sigma_tm t2)
-  | tyabs t1 => tyabs (subst_tm (up_ty sigma_ty) (shift_ty_tm sigma_tm) t1)
-  | tyapp t1 T => tyapp (subst_tm sigma_ty sigma_tm t1) (subst_ty sigma_ty T)
-  | tuple p ts => tuple p (V.map (subst_tm sigma_ty sigma_tm) ts)
-  | proj p i t1 => proj p i (subst_tm sigma_ty sigma_tm t1)
-  | inj p i t1 => inj p i (subst_tm sigma_ty sigma_tm t1)
-  | case t1 p fs => case (subst_tm sigma_ty sigma_tm t1) p (V.map (subst_tm sigma_ty sigma_tm) fs)
-  end.
-
-(* deep induction principle *)
-
-Fixpoint tm_ind2 (P : tm -> Prop)
-  (Hvar : forall n, P (var_tm n))
-  (Habs : forall t1, P t1 -> P (abs t1))
-  (Happ : forall t1 t2, P t1 -> P t2 -> P (app t1 t2))
-  (Htyabs : forall t1, P t1 -> P (tyabs t1))
-  (Htyapp : forall t1 T0, P t1 -> P (tyapp t1 T0))
-  (Htuple : forall p ts, V.Forall P ts -> P (tuple p ts))
-  (Hproj : forall p i t1, P t1 -> P (proj p i t1))
-  (Hinj : forall p i t1, P t1 -> P (inj p i t1))
-  (Hcase : forall t1 p fs, P t1 -> V.Forall P fs -> P (case t1 p fs))
-  (t : tm) {struct t} : P t :=
-  match t with
-  | var_tm n => Hvar n
-  | abs t1 => Habs t1 (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-  | app t1 t2 => Happ t1 t2 (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-                            (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t2)
-  | tyabs t1 => Htyabs t1 (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-  | tyapp t1 T => Htyapp t1 T (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-  | tuple p ts =>
-      let fix allP {p0} (v : V.t tm p0) : V.Forall P v :=
-          match v in V.t _ p1 return V.Forall P v with
-          | [ ] => V.Forall_nil P
-          | t1 ::: v' =>
-              V.Forall_cons P t1 v'
-                (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-                (allP v')
-          end
-      in Htuple p ts (allP ts)
-  | proj p i t1 => Hproj p i t1 (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-  | inj p i t1 => Hinj p i t1 (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1)
-  | case t1 p fs =>
-      let fix allP {p0} (v : V.t tm p0) : V.Forall P v :=
-          match v in V.t _ p1 return V.Forall P v with
-          | [ ] => V.Forall_nil P
-          | t2 ::: v' =>
-              V.Forall_cons P t2 v'
-                (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t2)
-                (allP v')
-          end
-      in Hcase t1 p fs (tm_ind2 P Hvar Habs Happ Htyabs Htyapp Htuple Hproj Hinj Hcase t1) (allP fs)
-  end.
-
-Definition context := list ty.
-
-(* surface syntax, fomega_sumprod/PLC-style custom entries *)
-
-Declare Scope sp_scope.
-Open Scope sp_scope.
-
-Declare Custom Entry sp_ty.
-Declare Custom Entry sp_tm.
-
-Notation "<{{ T }}>" := T (T custom sp_ty at level 99) : sp_scope.
-
-Notation "x" := x (in custom sp_ty at level 0, x constr at level 0) : sp_scope.
-Notation "x" := x (in custom sp_tm at level 0, x constr at level 0) : sp_scope.
-
-Notation "( T )" := T (in custom sp_ty at level 0, T custom sp_ty at level 99) : sp_scope.
-Notation "T1 -> T2" := (TyArr T1 T2) (in custom sp_ty at level 50, right associativity) : sp_scope.
-Notation "'-/,' T" := (TyForall T) (in custom sp_ty at level 90, T custom sp_ty at level 90) : sp_scope.
-Notation "{ T }" := T (in custom sp_ty at level 0, T constr at level 99, only parsing) : sp_scope.
-
-Notation "<{ t }>" := t (t custom sp_tm at level 99) : sp_scope.
-
-Notation "( t )" := t (in custom sp_tm at level 0, t custom sp_tm at level 99) : sp_scope.
-Notation "t1 t2" := (app t1 t2) (in custom sp_tm at level 11, left associativity) : sp_scope.
-Notation "\, t" := (abs t) (in custom sp_tm at level 90, t custom sp_tm at level 90) : sp_scope.
-Notation "'\\,' t" := (tyabs t) (in custom sp_tm at level 90, t custom sp_tm at level 90) : sp_scope.
-Notation "t [ T ]" := (tyapp t T) (in custom sp_tm at level 11, t custom sp_tm, T custom sp_ty at level 0) : sp_scope.
-Notation "{ t }" := t (in custom sp_tm at level 0, t constr at level 99, only parsing) : sp_scope.
-
-Coercion var_tm : nat >-> tm.
 Coercion var_ty : nat >-> ty.
+Coercion var_tm : nat >-> tm.
+
+(* beta reduction *)
+Definition tm_tm_betared (t v : tm) : tm :=
+  subst_tm var_ty (scons v var_tm) t.
+
+Definition tm_ty_betared (t : tm) (T : ty) : tm :=
+  subst_tm (scons T var_ty) var_tm t.
+
+Definition ty_beta_red (T1 S0 : ty) : ty :=
+  subst_ty (scons S0 var_ty) T1.
 
 (* values *)
-
 Inductive value : tm -> Prop :=
-  | V_Abs : forall t, value (abs t)
-  | V_TyAbs : forall t, value (tyabs t)
-  | V_Tuple : forall p ts, V.Forall value ts -> value (tuple p ts)
-  | V_Inj : forall p i t, value t -> value (inj p i t).
+  | V_Abs : forall T t, value (TmAbs T t)
+  | V_TAbs : forall t, value (TmTAbs t)
+  | V_Tuple : forall ts, Forall value ts -> value (TmTuple ts)
+  | V_Inj : forall i v, value v -> value (TmInj i v)
+  | V_Unit : value TmUnit.
 
 (* evaluation *)
-
 Reserved Notation "t '-->' t'" (at level 40).
 
 Inductive step : tm -> tm -> Prop :=
-  | ST_AppAbs : forall t v,
-      value v -> app (abs t) v --> subst_tm var_ty (scons v var_tm) t
-  | ST_App1 : forall t1 t1' t2, t1 --> t1' -> app t1 t2 --> app t1' t2
-  | ST_App2 : forall v1 t2 t2', value v1 -> t2 --> t2' -> app v1 t2 --> app v1 t2'
-  | ST_TyAppTyAbs : forall t T,
-      tyapp (tyabs t) T --> subst_tm (scons T var_ty) var_tm t
-  | ST_TyApp1 : forall t t' T, t --> t' -> tyapp t T --> tyapp t' T
-  | ST_Tuple : forall p (ts : V.t tm p) (i : Fin.t p) t',
-      V.nth ts i --> t' ->
-      tuple p ts --> tuple p (V.replace ts i t')
-  | ST_ProjRed : forall p (i : Fin.t p) (ts : V.t tm p),
-      V.Forall value ts ->
-      proj p i (tuple p ts) --> V.nth ts i
-  | ST_Proj1 : forall p i t t', t --> t' -> proj p i t --> proj p i t'
-  | ST_Inj1 : forall p i t t', t --> t' -> inj p i t --> inj p i t'
-  | ST_Case1 : forall t t' p fs, t --> t' -> case t p fs --> case t' p fs
-  | ST_Case2 : forall v p (fs : V.t tm p) (j : Fin.t p) t',
-      value v -> V.nth fs j --> t' ->
-      case v p fs --> case v p (V.replace fs j t')
-  | ST_CaseInjRed : forall p (i : Fin.t p) v scrut (fs : V.t tm p) t1,
-      scrut = inj p i v -> value v -> V.nth fs i = t1 ->
-      case scrut p fs --> app t1 v
+  | ST_AppAbs : forall T t v,
+      value v ->
+      <{ (\:T, t) v }> --> tm_tm_betared t v
+  | ST_App1 : forall t1 t1' t2,
+      t1 --> t1' ->
+      <{ t1 t2 }> --> <{ t1' t2 }>
+  | ST_App2 : forall v1 t2 t2',
+      value v1 ->
+      t2 --> t2' ->
+      <{ v1 t2 }> --> <{ v1 t2' }>
+  | ST_TAppAbs : forall t1 T,
+      <{ (\\, t1) [T] }> --> tm_ty_betared t1 T
+  | ST_TApp : forall t1 t1' T,
+      t1 --> t1' ->
+      <{ t1 [T] }> --> <{ t1' [T] }>
+  | ST_Tuple : forall vs t t' ts,
+      Forall value vs ->
+      t --> t' ->
+      <{ tuple (vs ++ t :: ts) }> --> <{ tuple (vs ++ t' :: ts) }>
+  | ST_ProjTuple : forall i ts v,
+      Forall value ts ->
+      nth_error ts i = Some v ->
+      <{ proj i (tuple ts) }> --> v
+  | ST_Proj : forall i t1 t1',
+      t1 --> t1' ->
+      <{ proj i t1 }> --> <{ proj i t1' }>
+  | ST_Inj : forall i t1 t1',
+      t1 --> t1' ->
+      <{ inj i t1 }> --> <{ inj i t1' }>
+  | ST_CaseInj : forall i v ts t,
+      value v ->
+      nth_error ts i = Some t ->
+      <{ case (inj i v) of ts }> --> <{ t v }>
+  | ST_Case : forall t1 t1' ts,
+      t1 --> t1' ->
+      <{ case t1 of ts }> --> <{ case t1' of ts }>
 
 where "t '-->' t'" := (step t t').
 
 (* typing *)
+Definition context := list ty.
 
 Reserved Notation "<[ Gamma |-- t \in T ]>"
-  (at level 0, Gamma at level 99, t custom sp_tm, T custom sp_ty).
+  (at level 0, Gamma at level 99, t custom plc_tm, T custom plc_ty).
 
 Inductive has_type (Gamma : context) : tm -> ty -> Prop :=
   | T_Var : forall x T1,
@@ -255,30 +113,126 @@ Inductive has_type (Gamma : context) : tm -> ty -> Prop :=
       <[ Gamma |-- x \in T1 ]>
   | T_Abs : forall T1 T2 t1,
       <[ T1 :: Gamma |-- t1 \in T2 ]> ->
-      <[ Gamma |-- \,t1 \in T1 -> T2 ]>
-  | T_App : forall T1 T2 t1 t2,
+      <[ Gamma |-- \:T1, t1 \in T1 -> T2 ]>
+  | T_App : forall t1 t2 T1 T2,
       <[ Gamma |-- t1 \in T1 -> T2 ]> ->
       <[ Gamma |-- t2 \in T1 ]> ->
       <[ Gamma |-- t1 t2 \in T2 ]>
-  | T_TyAbs : forall T1 t1,
-      has_type (map (ren_ty S) Gamma) t1 T1 ->
-      <[ Gamma |-- \\,t1 \in -/, T1 ]>
-  | T_TyApp : forall T1 S0 T1' t1,
+  | T_TAbs : forall t1 T1,
+      <[ map (ren_ty S) Gamma |-- t1 \in T1 ]> ->
+      <[ Gamma |-- \\, t1 \in -/, T1 ]>
+  | T_TApp : forall t1 T1 S T1',
       <[ Gamma |-- t1 \in -/, T1 ]> ->
-      T1' = subst_ty (scons S0 var_ty) T1 ->
-      <[ Gamma |-- t1 [S0] \in T1' ]>
-  | T_Tuple : forall p (ts : V.t tm p) (Ts : V.t ty p),
-      V.Forall2 (has_type Gamma) ts Ts ->
-      <[ Gamma |-- {tuple p ts} \in {TyProd p Ts} ]>
-  | T_Proj : forall p (i : Fin.t p) (t1 : tm) (Ts : V.t ty p),
-      <[ Gamma |-- t1 \in {TyProd p Ts} ]> ->
-      <[ Gamma |-- {proj p i t1} \in {V.nth Ts i} ]>
-  | T_Inj : forall p (i : Fin.t p) (t1 : tm) (Ts : V.t ty p),
-      <[ Gamma |-- t1 \in {V.nth Ts i} ]> ->
-      <[ Gamma |-- {inj p i t1} \in {TySum p Ts} ]>
-  | T_Case : forall p (t1 : tm) (fs : V.t tm p) (Ts : V.t ty p) (T2 : ty),
-      <[ Gamma |-- t1 \in {TySum p Ts} ]> ->
-      V.Forall2 (fun t2 Ti => <[ Gamma |-- t2 \in Ti -> T2 ]>) fs Ts ->
-      <[ Gamma |-- {case t1 p fs} \in T2 ]>
+      T1' = ty_beta_red T1 S ->
+      <[ Gamma |-- t1 [S] \in T1' ]>
+  | T_Tuple : forall ts Ts,
+      Forall2 (has_type Gamma) ts Ts ->
+      <[ Gamma |-- tuple ts \in Prod Ts ]>
+  | T_Proj : forall i t1 Ts Ti,
+      <[ Gamma |-- t1 \in Prod Ts ]> ->
+      nth_error Ts i = Some Ti ->
+      <[ Gamma |-- proj i t1 \in Ti ]>
+  | T_Inj : forall i t1 Ts Ti,
+      <[ Gamma |-- t1 \in Ti ]> ->
+      nth_error Ts i = Some Ti ->
+      <[ Gamma |-- inj i t1 \in Sum Ts ]>
+  | T_Case : forall t1 ts Ts S,
+      <[ Gamma |-- t1 \in Sum Ts ]> ->
+      Forall2 (fun t Ti => <[ Gamma |-- t \in Ti -> S ]>) ts Ts ->
+      <[ Gamma |-- case t1 of ts \in S ]>
+  | T_Unit :
+      <[ Gamma |-- unit \in Unit ]>
 
-where "<[ Gamma |-- t \in T ]>" := (has_type Gamma t T) : sp_scope.
+where "<[ Gamma |-- t \in T ]>" := (has_type Gamma t T) : plc_scope.
+
+(* nested induction principle for has_type (Forall2 premises carry IHs) *)
+Fixpoint has_type_ind2 (P : context -> tm -> ty -> Prop)
+  (H_Var : forall Gamma x T1,
+     nth_error Gamma x = Some T1 ->
+     P Gamma (var_tm x) T1)
+  (H_Abs : forall Gamma T1 T2 t1,
+     has_type (T1 :: Gamma) t1 T2 -> P (T1 :: Gamma) t1 T2 ->
+     P Gamma (TmAbs T1 t1) (TyArrow T1 T2))
+  (H_App : forall Gamma t1 t2 T1 T2,
+     has_type Gamma t1 (TyArrow T1 T2) -> P Gamma t1 (TyArrow T1 T2) ->
+     has_type Gamma t2 T1 -> P Gamma t2 T1 ->
+     P Gamma (TmApp t1 t2) T2)
+  (H_TAbs : forall Gamma t1 T1,
+     has_type (map (ren_ty S) Gamma) t1 T1 -> P (map (ren_ty S) Gamma) t1 T1 ->
+     P Gamma (TmTAbs t1) (TyForall T1))
+  (H_TApp : forall Gamma t1 T1 S T1',
+     has_type Gamma t1 (TyForall T1) -> P Gamma t1 (TyForall T1) ->
+     T1' = ty_beta_red T1 S ->
+     P Gamma (TmTApp t1 S) T1')
+  (H_Tuple : forall Gamma ts Ts,
+     Forall2 (fun t T => has_type Gamma t T /\ P Gamma t T) ts Ts ->
+     P Gamma (TmTuple ts) (TyProd Ts))
+  (H_Proj : forall Gamma i t1 Ts Ti,
+     has_type Gamma t1 (TyProd Ts) -> P Gamma t1 (TyProd Ts) ->
+     nth_error Ts i = Some Ti ->
+     P Gamma (TmProj i t1) Ti)
+  (H_Inj : forall Gamma i t1 Ts Ti,
+     has_type Gamma t1 Ti -> P Gamma t1 Ti ->
+     nth_error Ts i = Some Ti ->
+     P Gamma (TmInj i t1) (TySum Ts))
+  (H_Case : forall Gamma t1 ts Ts S,
+     has_type Gamma t1 (TySum Ts) -> P Gamma t1 (TySum Ts) ->
+     Forall2 (fun t Ti => has_type Gamma t (TyArrow Ti S) /\
+                          P Gamma t (TyArrow Ti S)) ts Ts ->
+     P Gamma (TmCase t1 ts) S)
+  (H_Unit : forall Gamma,
+     P Gamma TmUnit TyUnit)
+  Gamma t T (H : has_type Gamma t T) {struct H} : P Gamma t T :=
+  match H with
+  | T_Var _ x T1 Hx => H_Var Gamma x T1 Hx
+  | T_Abs _ T1 T2 t1 H1 =>
+      H_Abs Gamma T1 T2 t1 H1
+        (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1)
+  | T_App _ t1 t2 T1 T2 H1 H2 =>
+      H_App Gamma t1 t2 T1 T2
+        H1 (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1)
+        H2 (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H2)
+  | T_TAbs _ t1 T1 H1 =>
+      H_TAbs Gamma t1 T1 H1
+        (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1)
+  | T_TApp _ t1 T1 S2 T1' H1 Heq =>
+      H_TApp Gamma t1 T1 S2 T1' H1
+        (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1) Heq
+  | T_Tuple _ ts Ts HF =>
+      let fix allP ts Ts (HF : Forall2 (has_type Gamma) ts Ts) :
+          Forall2 (fun t T => has_type Gamma t T /\ P Gamma t T) ts Ts :=
+          match HF with
+          | Forall2_nil _ => Forall2_nil _
+          | @Forall2_cons _ _ _ t T ts' Ts' Ht HF' =>
+              Forall2_cons _ _
+                (conj Ht (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ Ht))
+                (allP ts' Ts' HF')
+          end
+      in H_Tuple Gamma ts Ts (allP ts Ts HF)
+  | T_Proj _ i t1 Ts Ti H1 Hi =>
+      H_Proj Gamma i t1 Ts Ti H1
+        (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1) Hi
+  | T_Inj _ i t1 Ts Ti H1 Hi =>
+      H_Inj Gamma i t1 Ts Ti H1
+        (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1) Hi
+  | T_Case _ t1 ts Ts S2 H1 HF =>
+      let fix allP ts Ts
+          (HF : Forall2 (fun t Ti => has_type Gamma t (TyArrow Ti S2)) ts Ts) :
+          Forall2 (fun t Ti => has_type Gamma t (TyArrow Ti S2) /\
+                               P Gamma t (TyArrow Ti S2)) ts Ts :=
+          match HF with
+          | Forall2_nil _ => Forall2_nil _
+          | @Forall2_cons _ _ _ t Ti ts' Ts' Hf HF' =>
+              Forall2_cons _ _
+                (conj Hf (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ Hf))
+                (allP ts' Ts' HF')
+          end
+      in H_Case Gamma t1 ts Ts S2 H1
+           (has_type_ind2 P H_Var H_Abs H_App H_TAbs H_TApp H_Tuple H_Proj H_Inj H_Case H_Unit _ _ _ H1)
+           (allP ts Ts HF)
+  | T_Unit _ => H_Unit Gamma
+  end.
+
+Ltac aunfold := unfold core.funcomp, unscoped.scons, unscoped.shift, unscoped.id.
+Ltac asolve := simpl; asimpl; aunfold; simpl; try auto.
+Ltac dauto := try (intros _x; destruct _x; auto).

@@ -1,3 +1,6 @@
 -R . FSumProd
+./core.v
+./unscoped.v
+./Syntax.v
 ./Definitions.v
 ./Properties.v

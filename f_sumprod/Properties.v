@@ -1,717 +1,477 @@
-From Stdlib Require Import Eqdep_dec Arith List.
+From Stdlib Require Import List.
 From FSumProd Require Export Definitions.
-Open Scope vec_scope.
 
-Ltac clear_existT :=
-  repeat match goal with
-  | H : existT _ _ _ = existT _ _ _ |- _ =>
-      apply Eqdep_dec.inj_pair2_eq_dec in H; [| apply PeanoNat.Nat.eq_dec]; subst
-  end.
-
-(* Vector.Forall2 helper lemmas *)
-
-Lemma Forall2_Vmap :
-  forall (X : Type) (f : X -> X) (P : X -> Prop) (Y : Type) (Q Q' : X -> Y -> Prop)
-    (p: nat) (xs : V.t X p) (ys : V.t Y p),
-      V.Forall P xs ->
-      V.Forall2 Q xs ys ->
-      (forall x y, P x -> Q x y -> Q' (f x) y) ->
-      V.Forall2 Q' (V.map f xs) ys.
+(* Forall2 helpers *)
+Lemma Forall2_map_l : forall (A B : Type) (R R' : A -> B -> Prop) f xs ys,
+  Forall2 R xs ys ->
+  (forall x y, R x y -> R' (f x) y) ->
+  Forall2 R' (map f xs) ys.
 Proof.
-  intros X f P Y Q Q' p xs ys HP HQ H.
-  revert HP HQ.
-  induction p as [|p' ].
-  - replace xs with (@V.nil X); try (symmetry; apply V.nil_spec).
-    replace ys with (@V.nil Y); try (symmetry; apply V.nil_spec).
-    intros. simpl. constructor.
-  - replace xs with (V.cons _ (V.hd xs) _ (V.tl xs)); try (symmetry; apply V.eta).
-    replace ys with (V.cons _ (V.hd ys) _ (V.tl ys)); try (symmetry; apply V.eta).
-    remember (V.hd xs) as x. remember (V.tl xs) as xs'.
-    remember (V.hd ys) as y. remember (V.tl ys) as ys'.
-    intros. inversion HP. inversion HQ. clear_existT. simpl. constructor.
-    + apply H; assumption.
-    + apply IHp'; assumption.
+  intros A B R R' f xs ys H Hf.
+  induction H; simpl.
+  - constructor.
+  - constructor; auto.
 Qed.
 
-Lemma Forall2_Vmap2 :
-  forall (X : Type) (f : X -> X) (P : X -> Prop) (Y : Type) (g : Y -> Y) (Q Q' : X -> Y -> Prop)
-    (p : nat) (xs : V.t X p) (ys : V.t Y p),
-      V.Forall P xs ->
-      V.Forall2 Q xs ys ->
-      (forall x y, P x -> Q x y -> Q' (f x) (g y)) ->
-      V.Forall2 Q' (V.map f xs) (V.map g ys).
+Lemma Forall2_map_lr : forall (A B : Type) (R R' : A -> B -> Prop) f g xs ys,
+  Forall2 R xs ys ->
+  (forall x y, R x y -> R' (f x) (g y)) ->
+  Forall2 R' (map f xs) (map g ys).
 Proof.
-  intros X f P Y g Q Q' p xs ys HP HQ H.
-  revert HP HQ.
-  induction p as [|p' ].
-  - replace xs with (@V.nil X); try (symmetry; apply V.nil_spec).
-    replace ys with (@V.nil Y); try (symmetry; apply V.nil_spec).
-    intros. simpl. constructor.
-  - replace xs with (V.cons _ (V.hd xs) _ (V.tl xs)); try (symmetry; apply V.eta).
-    replace ys with (V.cons _ (V.hd ys) _ (V.tl ys)); try (symmetry; apply V.eta).
-    remember (V.hd xs) as x. remember (V.tl xs) as xs'.
-    remember (V.hd ys) as y. remember (V.tl ys) as ys'.
-    intros. inversion HP. inversion HQ. clear_existT. simpl. constructor.
-    + apply H; assumption.
-    + apply IHp'; assumption.
+  intros A B R R' f g xs ys H Hfg.
+  induction H; simpl.
+  - constructor.
+  - constructor; auto.
 Qed.
 
-Lemma Forall2_replace :
-  forall X Y (Q : X -> Y -> Prop) p (v1 : V.t X p) (v2 : V.t Y p) (i : Fin.t p) (x' : X),
-    V.Forall2 Q v1 v2 ->
-    Q x' (V.nth v2 i) ->
-    V.Forall2 Q (V.replace v1 i x') v2.
+Lemma Forall2_nth_error_l : forall (A B : Type) (R : A -> B -> Prop) xs ys i x,
+  Forall2 R xs ys ->
+  nth_error xs i = Some x ->
+  exists y, nth_error ys i = Some y /\ R x y.
 Proof.
-  intros X Y Q p v1 v2 i x' H.
+  intros A B R xs ys i x H.
   revert i.
-  induction H as [| n a b v1' v2' Hab H' IH]; intros i Hq.
-  - inversion i.
-  - revert Hq. apply (Fin.caseS' i).
-    + cbn. intros Hq. constructor; assumption.
-    + intros i' Hq. cbn. constructor.
-      * eassumption.
-      * apply IH. exact Hq.
+  induction H; intros i Hi.
+  - destruct i; discriminate.
+  - destruct i; simpl in *.
+    + inversion Hi; subst. exists y. split; auto.
+    + apply IHForall2. assumption.
 Qed.
 
-Lemma Forall2_Vnth :
-  forall X Y (Q : X -> Y -> Prop) p (v1 : V.t X p) (v2 : V.t Y p) (i : Fin.t p),
-    V.Forall2 Q v1 v2 -> Q (V.nth v1 i) (V.nth v2 i).
+Lemma Forall2_nth_error_r : forall (A B : Type) (R : A -> B -> Prop) xs ys i y,
+  Forall2 R xs ys ->
+  nth_error ys i = Some y ->
+  exists x, nth_error xs i = Some x /\ R x y.
 Proof.
-  intros X Y Q p v1 v2 i H.
+  intros A B R xs ys i y H.
   revert i.
-  induction H as [| n a b v1' v2' Hab H' IH]; intros i.
-  - inversion i.
-  - apply (Fin.caseS' i).
-    + cbn. assumption.
-    + intros i'. cbn. apply IH.
+  induction H; intros i Hi.
+  - destruct i; discriminate.
+  - destruct i; simpl in *.
+    + inversion Hi; subst. exists x. split; auto.
+    + apply IHForall2. assumption.
 Qed.
 
-Lemma map_ext_Forall : forall (A : Type) (f g : A -> A) p (v : V.t A p),
-  V.Forall (fun a => f a = g a) v -> V.map f v = V.map g v.
+Lemma Forall2_replace : forall (A B : Type) (R R' : A -> B -> Prop) vs t t' ts Ts,
+  Forall2 R (vs ++ t :: ts) Ts ->
+  (forall x y, R x y -> R' x y) ->
+  (forall y, R t y -> R' t' y) ->
+  Forall2 R' (vs ++ t' :: ts) Ts.
 Proof.
-  induction v as [| x p' v' IH]; cbn; intros HF.
-  - reflexivity.
-  - apply Vector.Forall_cons_iff in HF as [Hx Hv'].
-    f_equal; [exact Hx | apply IH; exact Hv'].
+  intros A B R R' vs t t' ts Ts H HR Ht.
+  apply Forall2_app_inv_l in H.
+  destruct H as [Ts1 [Ts2 [H1 [H2 HTs]]]].
+  subst Ts. inversion H2; subst.
+  apply Forall2_app.
+  - eapply Forall2_impl; eassumption.
+  - constructor; auto.
+    eapply Forall2_impl; eassumption.
 Qed.
 
-(* Autosubst で自動的に示されていた補題 *)
-
-Lemma ext_ren_ty : forall T xi1 xi2, (forall n, xi1 n = xi2 n) -> ren_ty xi1 T = ren_ty xi2 T.
+Lemma Forall2_Forall_l : forall (A B : Type) (R : A -> B -> Prop) (P : A -> Prop) xs ys,
+  Forall2 R xs ys ->
+  (forall x y, R x y -> P x) ->
+  Forall P xs.
 Proof.
-  intros T. induction T using ty_ind2; intros xi1 xi2 Heq; cbn.
-  - f_equal. apply Heq.
-  - f_equal; [apply IHT1 | apply IHT2]; assumption.
-  - f_equal. apply IHT. intros n. destruct n; cbn; [reflexivity | f_equal; apply Heq].
-  - f_equal. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
-  - f_equal. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
+  intros A B R P xs ys H HP.
+  induction H.
+  - constructor.
+  - constructor.
+    + apply HP with (y := y). assumption.
+    + assumption.
 Qed.
 
-Lemma ren_ren_ty : forall T xi zeta, ren_ty zeta (ren_ty xi T) = ren_ty (fun n => zeta (xi n)) T.
+(* renaming/substitution *)
+Lemma ren_ty_beta_red : forall T1 S xi,
+  ren_ty xi (ty_beta_red T1 S) =
+  ty_beta_red (ren_ty (upRen_ty_ty xi) T1) (ren_ty xi S).
 Proof.
-  intros T. induction T using ty_ind2; intros xi zeta; cbn.
-  - reflexivity.
-  - f_equal; [apply IHT1 | apply IHT2].
-  - f_equal. rewrite IHT. apply ext_ren_ty. intros n. destruct n; reflexivity.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
+  intros T1 S xi. unfold ty_beta_red.
+  rewrite substRen_ty, renSubst_ty.
+  apply ext_ty. intros x. destruct x; simpl; reflexivity.
 Qed.
 
-Lemma ext_subst_ty : forall T sigma1 sigma2, (forall n, sigma1 n = sigma2 n) -> subst_ty sigma1 T = subst_ty sigma2 T.
+Lemma subst_ty_beta_red : forall T1 S sigma,
+  subst_ty sigma (ty_beta_red T1 S) =
+  ty_beta_red (subst_ty (up_ty_ty sigma) T1) (subst_ty sigma S).
 Proof.
-  intros T. induction T using ty_ind2; intros sigma1 sigma2 Heq; cbn.
-  - apply Heq.
-  - f_equal; [apply IHT1 | apply IHT2]; assumption.
-  - f_equal. apply IHT. intros n. destruct n; cbn; [reflexivity | f_equal; apply Heq].
-  - f_equal. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
-  - f_equal. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
+  intros T1 S sigma. unfold ty_beta_red.
+  rewrite substSubst_ty, substSubst_ty.
+  apply ext_ty. intros x. destruct x; asolve.
 Qed.
 
-Lemma ren_subst_ty : forall T xi sigma, ren_ty xi (subst_ty sigma T) = subst_ty (fun n => ren_ty xi (sigma n)) T.
+(* renaming / substitution preserve typing *)
+Lemma renTm_typing : forall Gamma t T,
+  <[ Gamma |-- t \in T ]> ->
+  forall Gamma' xi,
+  (forall x S, nth_error Gamma x = Some S ->
+                nth_error Gamma' (xi x) = Some S) ->
+  <[ Gamma' |-- {ren_tm id xi t} \in T ]>.
 Proof.
-  intros T. induction T using ty_ind2; intros xi sigma; cbn.
-  - reflexivity.
-  - f_equal; [apply IHT1 | apply IHT2].
-  - f_equal. rewrite IHT. apply ext_subst_ty. intros n. destruct n; cbn.
+  intros Gamma t T H.
+  induction H using has_type_ind2; intros Gamma' xi Hxi; asolve.
+  - apply T_Var. apply Hxi. assumption.
+  - apply T_Abs. apply IHhas_type.
+    intros x S Hx. destruct x.
+    + simpl in Hx. inversion Hx. reflexivity.
+    + simpl in Hx. apply Hxi. assumption.
+  - eapply T_App.
+    + apply IHhas_type1. assumption.
+    + apply IHhas_type2. assumption.
+  - apply T_TAbs.
+    rewrite extRen_tm with (zeta_ty := id) (zeta_tm := xi); dauto.
+    apply IHhas_type. intros x S Hx.
+    rewrite nth_error_map in *.
+    destruct (nth_error Gamma x) as [S'|] eqn:EqGx; try discriminate.
+    simpl in Hx. inversion Hx; subst.
+    rewrite Hxi with (S := S'); auto.
+  - subst T1'. eapply T_TApp.
+    + apply IHhas_type. assumption.
     + reflexivity.
-    + rewrite ren_ren_ty, ren_ren_ty. apply ext_ren_ty. intros k. reflexivity.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
+  - apply T_Tuple.
+    eapply Forall2_map_l; try eassumption.
+    intros t T [_ IH]. apply IH. assumption.
+  - eapply T_Proj.
+    + apply IHhas_type. assumption.
+    + assumption.
+  - eapply T_Inj.
+    + apply IHhas_type. assumption.
+    + assumption.
+  - eapply T_Case.
+    + apply IHhas_type. assumption.
+    + eapply Forall2_map_l; try eassumption.
+      intros t Ti [_ IH]. apply IH. assumption.
+  - apply T_Unit.
 Qed.
 
-Lemma subst_ren_ty : forall T xi sigma, subst_ty sigma (ren_ty xi T) = subst_ty (fun n => sigma (xi n)) T.
+Lemma renTy_typing : forall Gamma t T,
+  <[ Gamma |-- t \in T ]> ->
+  forall Gamma' xi,
+  (forall x S, nth_error Gamma x = Some S ->
+                nth_error Gamma' x = Some (ren_ty xi S)) ->
+  <[ Gamma' |-- {ren_tm xi id t} \in {ren_ty xi T} ]>.
 Proof.
-  intros T. induction T using ty_ind2; intros xi sigma; cbn.
-  - reflexivity.
-  - f_equal; [apply IHT1 | apply IHT2].
-  - f_equal. rewrite IHT. apply ext_subst_ty. intros n. destruct n; reflexivity.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
-Qed.
-
-Lemma subst_subst_ty : forall T sigma tau, subst_ty tau (subst_ty sigma T) = subst_ty (fun n => subst_ty tau (sigma n)) T.
-Proof.
-  intros T. induction T using ty_ind2; intros sigma tau; cbn.
-  - reflexivity.
-  - f_equal; [apply IHT1 | apply IHT2].
-  - f_equal. rewrite IHT. apply ext_subst_ty. intros n. destruct n; cbn.
-    + reflexivity.
-    + rewrite ren_subst_ty, subst_ren_ty. reflexivity.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
-  - f_equal. rewrite V.map_map. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa.
-Qed.
-
-Lemma subst_ty_id : forall T, subst_ty var_ty T = T.
-Proof.
-  induction T using ty_ind2; cbn.
-  - reflexivity.
-  - f_equal; assumption.
-  - f_equal. erewrite ext_subst_ty; [apply IHT |]. intros n. destruct n; reflexivity.
-  - f_equal. rewrite <- (V.map_id _ _ Ts) at 2. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. exact Pa.
-  - f_equal. rewrite <- (V.map_id _ _ Ts) at 2. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. exact Pa.
-Qed.
-
-Lemma ren_ty_id : forall T, ren_ty id T = T.
-Proof.
-  induction T using ty_ind2; cbn.
-  - reflexivity.
-  - f_equal; assumption.
-  - f_equal. erewrite ext_ren_ty; [apply IHT |]. intros n. destruct n; reflexivity.
-  - f_equal. rewrite <- (V.map_id _ _ Ts) at 2. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. exact Pa.
-  - f_equal. rewrite <- (V.map_id _ _ Ts) at 2. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. exact Pa.
-Qed.
-
-Lemma ext_ren_tm : forall t xi_ty1 xi_ty2 xi_tm1 xi_tm2,
-  (forall n, xi_ty1 n = xi_ty2 n) -> (forall n, xi_tm1 n = xi_tm2 n) ->
-  ren_tm xi_ty1 xi_tm1 t = ren_tm xi_ty2 xi_tm2 t.
-Proof.
-  intros t. induction t using tm_ind2; intros xi_ty1 xi_ty2 xi_tm1 xi_tm2 Heqty Heqtm; cbn.
-  - f_equal. apply Heqtm.
-  - f_equal. apply IHt; [assumption |].
-    intros n. destruct n; cbn; [reflexivity | f_equal; apply Heqtm].
-  - f_equal; [apply IHt1 | apply IHt2]; assumption.
-  - f_equal. apply IHt; [| assumption].
-    intros n. destruct n; cbn; [reflexivity | f_equal; apply Heqty].
-  - f_equal; [apply IHt; assumption | apply ext_ren_ty; assumption].
-  - f_equal. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
-  - f_equal. apply IHt; assumption.
-  - f_equal. apply IHt; assumption.
-  - f_equal; [apply IHt; assumption |].
-    apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
-Qed.
-
-Lemma ext_subst_tm : forall t sigma_ty1 sigma_ty2 sigma_tm1 sigma_tm2,
-  (forall n, sigma_ty1 n = sigma_ty2 n) -> (forall n, sigma_tm1 n = sigma_tm2 n) ->
-  subst_tm sigma_ty1 sigma_tm1 t = subst_tm sigma_ty2 sigma_tm2 t.
-Proof.
-  intros t. induction t using tm_ind2; intros sigma_ty1 sigma_ty2 sigma_tm1 sigma_tm2 Heqty Heqtm; cbn.
-  - apply Heqtm.
-  - f_equal. apply IHt; [assumption |].
-    intros n. destruct n; cbn; [reflexivity | f_equal; apply Heqtm].
-  - f_equal; [apply IHt1 | apply IHt2]; assumption.
-  - f_equal. apply IHt.
-    + intros n. destruct n; cbn; [reflexivity | f_equal; apply Heqty].
-    + intros n. unfold shift_ty_tm. f_equal. apply Heqtm.
-  - f_equal; [apply IHt; assumption | apply ext_subst_ty; assumption].
-  - f_equal. apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
-  - f_equal. apply IHt; assumption.
-  - f_equal. apply IHt; assumption.
-  - f_equal; [apply IHt; assumption |].
-    apply map_ext_Forall. eapply Vector.Forall_impl; [| eassumption].
-    intros a Pa. apply Pa; assumption.
-Qed.
-
-(* Beta-reduction properties for renaming and substitution *)
-Lemma ren_ty_beta_red : forall T1 S0 xi,
-  ren_ty xi (subst_ty (scons S0 var_ty) T1) =
-  subst_ty (scons (ren_ty xi S0) var_ty) (ren_ty (up_ren xi) T1).
-Proof.
-  intros T1 S0 xi.
-  rewrite ren_subst_ty, subst_ren_ty.
-  apply ext_subst_ty. intros n. destruct n; cbn; reflexivity.
-Qed.
-
-Lemma subst_ty_beta_red : forall T1 S0 sigma,
-  subst_ty sigma (subst_ty (scons S0 var_ty) T1) =
-  subst_ty (scons (subst_ty sigma S0) var_ty) (subst_ty (up_ty sigma) T1).
-Proof.
-  intros T1 S0 sigma.
-  rewrite subst_subst_ty, subst_subst_ty.
-  apply ext_subst_ty. intros n. destruct n; cbn.
-  - reflexivity.
-  - rewrite subst_ren_ty.
-    transitivity (subst_ty var_ty (sigma n)).
-    + symmetry. apply subst_ty_id.
-    + apply ext_subst_ty. intros k. reflexivity.
-Qed.
-
-(* weakening / substitution preserve typing *)
-Lemma renTm_typing :
-  forall t Gamma T,
-    <[ Gamma |-- t \in T ]> ->
-    forall (xi : nat -> nat) (Gamma' : context),
-      (forall x T0, nth_error Gamma x = Some T0 -> nth_error Gamma' (xi x) = Some T0) ->
-      <[ Gamma' |-- {ren_tm id xi t} \in T ]>.
-Proof.
-  intros t.
-  induction t using tm_ind2; intros Gamma T Hty xi Gamma' Hxi; cbn in *.
-  - inversion Hty; subst; clear_existT. apply T_Var. apply Hxi. assumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_Abs. eapply IHt.
-    + eassumption.
-    + intros x T0 Hx. destruct x as [|x]; cbn in Hx |- *; unfold up_ren; cbn.
-      * exact Hx.
-      * apply Hxi. exact Hx.
-  - inversion Hty; subst; clear_existT. eapply T_App; eauto.
-  - inversion Hty; subst; clear_existT.
-    apply T_TyAbs.
-    rewrite ext_ren_tm with (xi_ty2 := id) (xi_tm2 := xi);
-      [ | intros n; destruct n; reflexivity | reflexivity].
-    eapply IHt.
-    + eassumption.
-    + intros x T0 Hx. rewrite nth_error_map in Hx.
-      destruct (nth_error Gamma x) as [S0|] eqn:EqGx; try discriminate.
-      simpl in Hx. inversion Hx; subst T0.
-      rewrite nth_error_map, (Hxi x S0 EqGx). reflexivity.
-  - inversion Hty; subst; clear_existT.
-    eapply T_TyApp.
-    + eapply IHt; eassumption.
-    + rewrite ren_ty_id. reflexivity.
-  - inversion Hty; subst; clear_existT.
-    apply T_Tuple.
-    eapply Forall2_Vmap.
-    + eassumption.
-    + eassumption.
-    + intros x y Px Hxy. eapply Px; eassumption.
-  - inversion Hty; subst; clear_existT. eapply T_Proj.
-    eapply IHt; eassumption.
-  - inversion Hty; subst; clear_existT. eapply T_Inj.
-    eapply IHt; eassumption.
-  - inversion Hty; subst; clear_existT.
-    eapply T_Case.
-    + eapply IHt; eassumption.
-    + eapply Forall2_Vmap.
-      * eassumption.
-      * eassumption.
-      * simpl. intros t' T' Pt' HtT'. eapply Pt'; eassumption.
-Qed.
-
-Lemma renTy_typing :
-  forall t Gamma T,
-    <[ Gamma |-- t \in T ]> ->
-    forall (xi : nat -> nat) (Gamma' : context),
-      (forall x T0, nth_error Gamma x = Some T0 -> nth_error Gamma' x = Some (ren_ty xi T0)) ->
-      <[ Gamma' |-- {ren_tm xi id t} \in {ren_ty xi T} ]>.
-Proof.
-  intros t.
-  induction t using tm_ind2; intros Gamma T Hty xi Gamma' Hxi; cbn [ren_tm] in *.
-  - inversion Hty; subst; clear_existT. apply T_Var. apply Hxi. assumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_Abs.
-    rewrite ext_ren_tm with (xi_ty2 := xi) (xi_tm2 := id);
-      [ | reflexivity | intros n; destruct n; reflexivity].
-    eapply IHt with (T := T2).
-    + eassumption.
-    + intros x T0 Hx. destruct x as [|x]; cbn in Hx |- *.
-      * inversion Hx; subst. reflexivity.
-      * apply Hxi. exact Hx.
-  - inversion Hty; subst; clear_existT.
-    eapply T_App with (T1 := ren_ty xi T1).
-    + eapply IHt1 with (T := TyArr T1 T); eassumption.
-    + eapply IHt2 with (T := T1); eassumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_TyAbs.
-    eapply IHt with (T := T1).
-    + eassumption.
-    + intros x T0 Hx. rewrite nth_error_map in Hx.
-      destruct (nth_error Gamma x) as [S0|] eqn:EqGx; try discriminate.
-      simpl in Hx. inversion Hx; subst T0.
-      rewrite nth_error_map, (Hxi x S0 EqGx). cbn.
-      rewrite ren_ren_ty, ren_ren_ty. reflexivity.
-  - inversion Hty; subst; clear_existT.
-    eapply T_TyApp with (T1 := ren_ty (up_ren xi) T1).
-    + eapply IHt with (T := TyForall T1); eassumption.
+  intros Gamma t T H.
+  induction H using has_type_ind2; intros Gamma' xi HG; asolve.
+  - apply T_Var. apply HG. assumption.
+  - apply T_Abs.
+    rewrite extRen_tm with (zeta_ty := xi) (zeta_tm := id); dauto.
+    apply IHhas_type. intros x S Hx.
+    destruct x; simpl in *; auto.
+    inversion Hx; subst. reflexivity.
+  - eapply T_App.
+    + apply IHhas_type1. assumption.
+    + apply IHhas_type2. assumption.
+  - apply T_TAbs.
+    apply IHhas_type. intros x S Hx.
+    rewrite nth_error_map in *.
+    destruct (nth_error Gamma x) as [S'|] eqn:EqGx; try discriminate.
+    simpl in Hx. inversion Hx; subst.
+    rewrite HG with (S := S'); try assumption.
+    asolve.
+  - subst T1'. eapply T_TApp.
+    + apply IHhas_type; assumption.
     + apply ren_ty_beta_red.
-  - inversion Hty; subst; clear_existT.
-    apply T_Tuple.
-    eapply Forall2_Vmap2.
-    + eassumption.
-    + eassumption.
-    + intros x y Px Hxy. eapply Px; eassumption.
-  - inversion Hty; subst; clear_existT.
-    rewrite <- (Vector.nth_map (ren_ty xi) Ts i i eq_refl).
-    eapply T_Proj. eapply IHt with (T := TyProd p Ts); eassumption.
-  - inversion Hty; subst; clear_existT.
-    eapply T_Inj.
-    change (has_type Gamma' (ren_tm xi id t) (V.nth (V.map (ren_ty xi) Ts) i)).
-    rewrite (Vector.nth_map (ren_ty xi) Ts i i eq_refl).
-    eapply IHt with (T := V.nth Ts i); eassumption.
-  - inversion Hty; subst; clear_existT.
-    eapply T_Case.
-    + eapply IHt with (T := TySum p Ts); eassumption.
-    + eapply Forall2_Vmap2.
-      * eassumption.
-      * eassumption.
-      * simpl. intros t' T' Pt' HtT'.
-        eapply Pt' with (T := TyArr T' T); eassumption.
+  - apply T_Tuple.
+    eapply Forall2_map_lr; try eassumption.
+    intros t T [_ IH]. apply IH. assumption.
+  - eapply T_Proj.
+    + apply IHhas_type; assumption.
+    + rewrite nth_error_map. rewrite H0. reflexivity.
+  - eapply T_Inj.
+    + apply IHhas_type; assumption.
+    + rewrite nth_error_map. rewrite H0. reflexivity.
+  - eapply T_Case.
+    + apply IHhas_type; assumption.
+    + eapply Forall2_map_lr; try eassumption.
+      intros t Ti [_ IH]. apply IH. assumption.
+  - apply T_Unit.
 Qed.
 
-(* substitution preserves typing *)
+(* substitution lemma *)
 Lemma tmsubst_preserves_typing :
-  forall t Gamma T,
-    <[ Gamma |-- t \in T ]> ->
-    forall (sigma : nat -> tm) (Gamma' : context),
-      (forall x T0, nth_error Gamma x = Some T0 -> <[ Gamma' |-- {sigma x} \in T0 ]>) ->
-      <[ Gamma' |-- {subst_tm var_ty sigma t} \in T ]>.
+  forall Gamma t T,
+  <[ Gamma |-- t \in T ]> ->
+  forall Gamma' sigma,
+  (forall x S, nth_error Gamma x = Some S ->
+                <[ Gamma' |-- {sigma x} \in S ]>) ->
+  <[ Gamma' |-- {subst_tm var_ty sigma t} \in T ]>.
 Proof.
-  intros t.
-  induction t using tm_ind2; intros Gamma T Hty sigma Gamma' Hsig; cbn [subst_tm] in *.
-  - inversion Hty; subst; clear_existT. apply Hsig. assumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_Abs.
-    eapply IHt with (T := T2).
-    + eassumption.
-    + intros x T0 Hx. destruct x as [|x]; cbn in Hx |- *; unfold up_tm.
-      * inversion Hx; subst. apply T_Var. reflexivity.
-      * eapply renTm_typing.
-        -- apply Hsig. exact Hx.
-        -- intros y T1' Hy. exact Hy.
-  - inversion Hty; subst; clear_existT.
-    eapply T_App.
-    + eapply IHt1 with (T := TyArr T1 T); eassumption.
-    + eapply IHt2 with (T := T1); eassumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_TyAbs.
-    rewrite ext_subst_tm with (sigma_ty2 := var_ty) (sigma_tm2 := shift_ty_tm sigma);
-      [ | intros n; destruct n; reflexivity | reflexivity].
-    eapply IHt with (T := T1).
-    + eassumption.
-    + intros x T0 Hx. rewrite nth_error_map in Hx.
-      destruct (nth_error Gamma x) as [S0|] eqn:EqGx; try discriminate.
-      simpl in Hx. inversion Hx; subst T0.
-      unfold shift_ty_tm.
-      eapply renTy_typing with (T := S0).
-      * apply Hsig. eassumption.
-      * intros y T1' Hy. rewrite nth_error_map, Hy. reflexivity.
-  - inversion Hty; subst; clear_existT.
-    eapply T_TyApp with (T1 := T1).
-    + eapply IHt with (T := TyForall T1); eassumption.
-    + rewrite subst_ty_id. reflexivity.
-  - inversion Hty; subst; clear_existT.
-    apply T_Tuple.
-    eapply Forall2_Vmap.
-    + eassumption.
-    + eassumption.
-    + intros x y Px Hxy. eapply Px; eassumption.
-  - inversion Hty; subst; clear_existT. eapply T_Proj.
-    eapply IHt with (T := TyProd p Ts); eassumption.
-  - inversion Hty; subst; clear_existT. eapply T_Inj.
-    eapply IHt with (T := V.nth Ts i); eassumption.
-  - inversion Hty; subst; clear_existT.
-    eapply T_Case.
-    + eapply IHt with (T := TySum p Ts); eassumption.
-    + eapply Forall2_Vmap.
-      * eassumption.
-      * eassumption.
-      * simpl. intros t' T' Pt' HtT'. eapply Pt'; eassumption.
+  intros Gamma t T H.
+  induction H using has_type_ind2; intros Gamma' sigma Hsig.
+  - asolve.
+  - asolve. apply T_Abs. apply IHhas_type. intros x S Hx.
+    destruct x; simpl in *.
+    + inversion Hx; subst. apply T_Var. reflexivity.
+    + apply renTm_typing with (Gamma := Gamma').
+      * apply Hsig. assumption.
+      * intros. simpl. assumption.
+  - asolve. eapply T_App.
+    + apply IHhas_type1. assumption.
+    + apply IHhas_type2. assumption.
+  - asolve. apply T_TAbs.
+    rewrite ext_tm with (tau_ty := id) (tau_tm := (fun x : nat => ren_tm S id (sigma x)));
+    dauto.
+    eapply IHhas_type. intros x S Hx.
+    rewrite nth_error_map in Hx.
+    destruct (nth_error Gamma x) as [S'|] eqn:EqGx; try discriminate.
+    simpl in Hx. inversion Hx. eapply renTy_typing.
+    + apply Hsig. assumption.
+    + intros y S1 Hy. rewrite nth_error_map. rewrite Hy. reflexivity.
+  - asolve. subst T1'. eapply T_TApp.
+    + apply IHhas_type. assumption.
+    + reflexivity.
+  - asolve. apply T_Tuple.
+    eapply Forall2_map_l; try eassumption.
+    intros t T [_ IH]. apply IH. assumption.
+  - asolve. eapply T_Proj.
+    + apply IHhas_type. assumption.
+    + assumption.
+  - asolve. eapply T_Inj.
+    + apply IHhas_type. assumption.
+    + assumption.
+  - asolve. eapply T_Case.
+    + apply IHhas_type. assumption.
+    + eapply Forall2_map_l; try eassumption.
+      intros t Ti [_ IH]. apply IH. assumption.
+  - apply T_Unit.
 Qed.
 
-(* type substitution preserves typing *)
 Lemma tysubst_preserves_typing :
-  forall t Gamma T,
-    <[ Gamma |-- t \in T ]> ->
-    forall (sigma : nat -> ty) (Gamma' : context),
-      (forall x T0, nth_error Gamma x = Some T0 -> nth_error Gamma' x = Some (subst_ty sigma T0)) ->
-      <[ Gamma' |-- {subst_tm sigma var_tm t} \in {subst_ty sigma T} ]>.
+  forall Gamma t T,
+  <[ Gamma |-- t \in T ]> ->
+  forall Gamma' sigma,
+  (forall x S, nth_error Gamma x = Some S ->
+                nth_error Gamma' x = Some (subst_ty sigma S)) ->
+  <[ Gamma' |-- {subst_tm sigma var_tm t} \in {subst_ty sigma T} ]>.
 Proof.
-  intros t.
-  induction t using tm_ind2; intros Gamma T Hty sigma Gamma' Hxi; cbn [subst_tm] in *.
-  - inversion Hty; subst; clear_existT. apply T_Var. apply Hxi. assumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_Abs.
-    rewrite ext_subst_tm with (sigma_ty2 := sigma) (sigma_tm2 := var_tm);
-      [ | reflexivity | intros n; destruct n; reflexivity].
-    eapply IHt with (T := T2).
-    + eassumption.
-    + intros x T0 Hx. destruct x as [|x]; cbn in Hx |- *.
-      * inversion Hx; subst. reflexivity.
-      * apply Hxi. exact Hx.
-  - inversion Hty; subst; clear_existT.
-    eapply T_App with (T1 := subst_ty sigma T1).
-    + eapply IHt1 with (T := TyArr T1 T); eassumption.
-    + eapply IHt2 with (T := T1); eassumption.
-  - inversion Hty; subst; clear_existT.
-    apply T_TyAbs.
-    eapply IHt with (T := T1).
-    + eassumption.
-    + intros x T0 Hx. rewrite nth_error_map in Hx.
-      destruct (nth_error Gamma x) as [S0|] eqn:EqGx; try discriminate.
-      simpl in Hx. inversion Hx; subst T0.
-      rewrite nth_error_map, (Hxi x S0 EqGx). cbn.
-      rewrite ren_subst_ty, subst_ren_ty. reflexivity.
-  - inversion Hty; subst; clear_existT.
-    eapply T_TyApp with (T1 := subst_ty (up_ty sigma) T1).
-    + eapply IHt with (T := TyForall T1); eassumption.
+  intros Gamma t T H.
+  induction H using has_type_ind2; intros Gamma' sigma HG.
+  - asolve. apply T_Var. apply HG. assumption.
+  - asolve. apply T_Abs.
+    rewrite ext_tm with (tau_ty := sigma) (tau_tm := var_tm).
+    + apply IHhas_type. intros x S Hx.
+      destruct x; simpl in Hx; inversion Hx.
+      * reflexivity.
+      * simpl. apply HG. assumption.
+    + intros x. apply rinstId'_ty.
+    + dauto.
+  - asolve. eapply T_App.
+    + apply IHhas_type1. assumption.
+    + apply IHhas_type2. assumption.
+  - asolve. apply T_TAbs.
+    rewrite ext_tm with (tau_ty := up_ty_ty sigma) (tau_tm := var_tm);
+    dauto.
+    apply IHhas_type. intros x S Hx.
+    rewrite nth_error_map in Hx.
+    destruct (nth_error Gamma x) as [S'|] eqn:EqGx; try discriminate.
+    simpl in Hx. inversion Hx; subst.
+    rewrite nth_error_map. rewrite HG with (S := S'); try assumption.
+    simpl. f_equal. asolve.
+  - asolve. subst T1'. eapply T_TApp.
+    + apply IHhas_type; assumption.
     + apply subst_ty_beta_red.
-  - inversion Hty; subst; clear_existT.
-    apply T_Tuple.
-    eapply Forall2_Vmap2.
-    + eassumption.
-    + eassumption.
-    + intros x y Px Hxy. eapply Px; eassumption.
-  - inversion Hty; subst; clear_existT.
-    rewrite <- (Vector.nth_map (subst_ty sigma) Ts i i eq_refl).
-    eapply T_Proj. eapply IHt with (T := TyProd p Ts); eassumption.
-  - inversion Hty; subst; clear_existT.
-    eapply T_Inj.
-    change (has_type Gamma' (subst_tm sigma var_tm t) (V.nth (V.map (subst_ty sigma) Ts) i)).
-    rewrite (Vector.nth_map (subst_ty sigma) Ts i i eq_refl).
-    eapply IHt with (T := V.nth Ts i); eassumption.
-  - inversion Hty; subst; clear_existT.
-    eapply T_Case.
-    + eapply IHt with (T := TySum p Ts); eassumption.
-    + eapply Forall2_Vmap2.
-      * eassumption.
-      * eassumption.
-      * simpl. intros t' T' Pt' HtT'.
-        eapply Pt' with (T := TyArr T' T); eassumption.
-Qed.
-
-Lemma tmsubst1_preserves_typing :
-  forall Gamma T1 T2 t1 t2,
-    <[ Gamma |-- t2 \in T1 ]> ->
-    <[ T1 :: Gamma |-- t1 \in T2 ]> ->
-    <[ Gamma |-- {subst_tm var_ty (scons t2 var_tm) t1} \in T2 ]>.
-Proof.
-  intros Gamma T1 T2 t1 t2 Ht2 Ht1.
-  eapply tmsubst_preserves_typing.
-  - eassumption.
-  - intros x T0 Hx. destruct x as [|x]; cbn in Hx.
-    + injection Hx as Hx. subst. assumption.
-    + apply T_Var. assumption.
+  - asolve. apply T_Tuple.
+    eapply Forall2_map_lr; try eassumption.
+    intros t T [_ IH]. apply IH. assumption.
+  - asolve. eapply T_Proj.
+    + apply IHhas_type. assumption.
+    + rewrite nth_error_map. rewrite H0. reflexivity.
+  - asolve. eapply T_Inj.
+    + apply IHhas_type; assumption.
+    + rewrite nth_error_map. rewrite H0. reflexivity.
+  - asolve. eapply T_Case.
+    + apply IHhas_type; assumption.
+    + eapply Forall2_map_lr; try eassumption.
+      intros t Ti [_ IH]. apply IH. assumption.
+  - apply T_Unit.
 Qed.
 
 (* preservation *)
-Lemma preservation :
-  forall t Gamma T,
-    <[ Gamma |-- t \in T ]> ->
-    forall t', t --> t' -> <[ Gamma |-- t' \in T ]>.
+Theorem preservation :
+  forall Gamma t T,
+  <[ Gamma |-- t \in T ]> ->
+  forall t',
+  t --> t' ->
+  <[ Gamma |-- t' \in T ]>.
 Proof.
-  intros t.
-  induction t using tm_ind2; intros Gamma T Hty t' Hstep.
+  intros Gamma t T H.
+  induction H using has_type_ind2; intros t' Hstep.
   - inversion Hstep.
   - inversion Hstep.
-  - inversion Hty; subst; clear_existT.
-    inversion Hstep; subst; clear_existT.
-    + inversion H1; subst; clear_existT. eapply tmsubst1_preserves_typing; eauto.
-    + eapply T_App; eauto.
-    + eapply T_App; eauto.
+  - inversion Hstep; subst.
+    + unfold tm_tm_betared.
+      inversion H; subst.
+      apply tmsubst_preserves_typing with (Gamma := T1 :: Gamma).
+      * assumption.
+      * intros x S Hx. destruct x; simpl in *.
+        { inversion Hx; subst. assumption. }
+        { apply T_Var. assumption. }
+    + eapply T_App.
+      * apply IHhas_type1. assumption.
+      * assumption.
+    + eapply T_App.
+      * eassumption.
+      * apply IHhas_type2. assumption.
   - inversion Hstep.
-  - inversion Hty; subst; clear_existT.
-    inversion Hstep; subst; clear_existT.
-    + inversion H1; subst; clear_existT.
+  - inversion Hstep; subst.
+    + unfold tm_ty_betared.
+      inversion H; subst.
       eapply tysubst_preserves_typing.
       * eassumption.
-      * intros x T2 Hx. rewrite nth_error_map in Hx.
-        destruct (nth_error Gamma x) as [S0|] eqn:EqGx; try discriminate.
-        simpl in Hx. inversion Hx; subst T2.
-        f_equal.
-        rewrite subst_ren_ty.
-        rewrite (ext_subst_ty S0 (fun n => scons T0 var_ty (S n)) var_ty);
-          [symmetry; apply subst_ty_id | intros k; reflexivity].
-    + eapply T_TyApp; eauto.
-  - inversion Hty; subst; clear_existT.
-    inversion Hstep; subst; clear_existT.
+      * intros x S1 Hx. rewrite nth_error_map in Hx.
+        destruct (nth_error Gamma x) as [S'|] eqn:EqGx; try discriminate.
+        simpl in Hx. inversion Hx; subst.
+        asolve.
+    + eapply T_TApp.
+      * apply IHhas_type. assumption.
+      * reflexivity.
+  - inversion Hstep; subst.
     apply T_Tuple.
-    eapply Forall2_replace; try eassumption.
-    apply Forall2_Vnth with (i := i) in H3.
-    eapply (proj1 (Vector.Forall_nth _ _ _ _) H i); eassumption.
-  - inversion Hty; subst; clear_existT.
-    inversion Hstep; subst; clear_existT.
-    + inversion H3; subst; clear_existT.
-      apply Forall2_Vnth. assumption.
-    + eapply T_Proj; eauto.
-  - inversion Hty; subst; clear_existT.
-    inversion Hstep; subst; clear_existT.
-    eapply T_Inj; eauto.
-  - inversion Hty; subst; clear_existT.
-    inversion Hstep; subst; clear_existT.
-    + eapply T_Case; eauto.
-    + eapply T_Case.
-      * eassumption.
-      * eapply Forall2_replace; [eassumption |].
-        apply Forall2_Vnth with (i := j) in H5.
-        eapply (proj1 (Vector.Forall_nth _ _ _ _) H j); eassumption.
-    + inversion H4; subst; clear_existT.
+    eapply Forall2_replace.
+    + eassumption.
+    + simpl. intros t0 T0 [Ht _]. assumption.
+    + simpl. intros T0 [_ IH]. apply IH. assumption.
+  - inversion Hstep; subst.
+    + inversion H. subst.
+      destruct (Forall2_nth_error_l _ _ _ _ _ _ _ H4 H5) as [Ti' [HTi' Ht]].
+      rewrite H0 in HTi'. inversion HTi'. subst.
+      assumption.
+    + eapply T_Proj.
+      * apply IHhas_type. assumption.
+      * assumption.
+  - inversion Hstep; subst.
+    eapply T_Inj.
+    + apply IHhas_type. assumption.
+    + assumption.
+  - inversion Hstep; subst.
+    + inversion H; subst.
+      destruct (Forall2_nth_error_l _ _ _ _ _ _ _ H0 H5) as [Ti' [HTi' [Ht _]]].
+      rewrite H7 in HTi'. inversion HTi'; subst.
       eapply T_App.
-      * apply (Forall2_Vnth _ _ _ _ _ _ i H5).
-      * apply H1.
+      * eassumption.
+      * assumption.
+    + eapply T_Case.
+      * apply IHhas_type. assumption.
+      * eapply Forall2_impl; try eassumption.
+        intros t Ti [Ht _]. assumption.
+  - inversion Hstep.
 Qed.
 
 (* canonical forms *)
 Lemma canonical_forms_arr :
-  forall Gamma (t : tm) T1 T2,
-    <[ Gamma |-- t \in T1 -> T2 ]> ->
-    value t ->
-    exists t1, t = abs t1.
+  forall t T1 T2,
+  <[ nil |-- t \in T1 -> T2 ]> ->
+  value t ->
+  exists t1, t = <{ \:T1, t1 }>.
 Proof.
-  intros Gamma t T1 T2 Hty Hval.
-  destruct Hval as [t1 | t1 | p ts Hts | p0 i t0 Hv0].
-  - exists t1. reflexivity.
-  - inversion Hty.
-  - inversion Hty.
-  - inversion Hty.
+  intros t T1 T2 Hty Hval.
+  destruct Hval; inversion Hty; subst.
+  exists t. reflexivity.
 Qed.
 
 Lemma canonical_forms_forall :
-  forall Gamma (t : tm) T1,
-    <[ Gamma |-- t \in -/, T1 ]> ->
-    value t ->
-    exists t1, t = tyabs t1.
+  forall t T1,
+  <[ nil |-- t \in -/, T1 ]> ->
+  value t ->
+  exists t1, t = <{ \\, t1 }>.
 Proof.
-  intros Gamma t T1 Hty Hval.
-  destruct Hval as [t1 | t1 | p ts Hts | p0 i t0 Hv0].
-  - inversion Hty.
-  - exists t1. reflexivity.
-  - inversion Hty.
-  - inversion Hty.
+  intros t T1 Hty Hval.
+  destruct Hval; inversion Hty; subst.
+  exists t. reflexivity.
 Qed.
 
 Lemma canonical_forms_prod :
-  forall Gamma (t : tm) p (Ts : V.t ty p),
-    <[ Gamma |-- t \in {TyProd p Ts} ]> ->
-    value t ->
-    exists ts, t = tuple p ts.
+  forall t Ts,
+  <[ nil |-- t \in Prod Ts ]> ->
+  value t ->
+  exists ts, t = <{ tuple ts }>.
 Proof.
-  intros Gamma t p Ts Hty Hval.
-  destruct Hval as [t1 | t1 | p' ts Hts | p0 i t0 Hv0].
-  - inversion Hty.
-  - inversion Hty.
-  - inversion Hty; subst; clear_existT. exists ts. reflexivity.
-  - inversion Hty.
+  intros t Ts Hty Hval.
+  destruct Hval; inversion Hty; subst.
+  exists ts. reflexivity.
 Qed.
 
 Lemma canonical_forms_sum :
-  forall Gamma (t : tm) p (Ts : V.t ty p),
-    <[ Gamma |-- t \in {TySum p Ts} ]> ->
-    value t ->
-    exists (i : Fin.t p) t1, t = inj p i t1.
+  forall t Ts,
+  <[ nil |-- t \in Sum Ts ]> ->
+  value t ->
+  exists i v, t = <{ inj i v }>.
 Proof.
-  intros Gamma t p Ts Hty Hval.
-  destruct Hval as [t1 | t1 | p' ts Hts | p0 i t0 Hv0].
-  - inversion Hty.
-  - inversion Hty.
-  - inversion Hty.
-  - inversion Hty; subst; clear_existT. exists i, t0. reflexivity.
+  intros t Ts Hty Hval.
+  destruct Hval; inversion Hty; subst.
+  exists i, v. reflexivity.
 Qed.
 
-Lemma vec_progress :
-  forall p (ts : V.t tm p),
-    V.Forall (fun t => value t \/ exists t', t --> t') ts ->
-    V.Forall value ts \/ (exists (i : Fin.t p) t', V.nth ts i --> t').
+Lemma list_progress :
+  forall ts,
+  Forall (fun t => value t \/ exists t', t --> t') ts ->
+  Forall value ts \/
+  exists vs t t' ts', ts = vs ++ t :: ts' /\ Forall value vs /\ t --> t'.
 Proof.
-  induction ts as [| x p' ts' IH]; intros Hall.
+  intros ts H.
+  induction H.
   - left. constructor.
-  - apply Vector.Forall_cons_iff in Hall as [Hx Hts'].
-    destruct Hx as [Hv | [t' Hstep]].
-    + destruct (IH Hts') as [Hallt | [i [t'' Hstep]]].
+  - destruct H as [Hv | [x' Hs]].
+    + destruct IHForall as [Hvs | [vs [t [t' [ts' [Heq [Hvs Hs]]]]]]].
       * left. constructor; assumption.
-      * right. exists (Fin.FS i), t''. exact Hstep.
-    + right. exists Fin.F1, t'. exact Hstep.
-Qed.
-
-Lemma Forall_combine3 :
-  forall p (ts : V.t tm p) (Ts : V.t ty p),
-    V.Forall (fun t => forall T0, <[ nil |-- t \in T0 ]> -> value t \/ exists t', t --> t') ts ->
-    V.Forall2 (has_type nil) ts Ts ->
-    V.Forall (fun t => value t \/ exists t', t --> t') ts.
-Proof.
-  intros p ts Ts.
-  refine (@Vector.rect2 tm ty
-    (fun n v1 v2 =>
-       V.Forall (fun t => forall T0, <[ nil |-- t \in T0 ]> -> value t \/ exists t', t --> t') v1 ->
-       V.Forall2 (has_type nil) v1 v2 ->
-       V.Forall (fun t => value t \/ exists t', t --> t') v1)
-    _ _ p ts Ts).
-  - intros _ _. constructor.
-  - intros n v1 v2 IH a b HIH HF2.
-    apply Vector.Forall_cons_iff in HIH as [Ha HIH'].
-    apply Vector.Forall2_cons_iff in HF2 as [Hab HF2'].
-    constructor.
-    + eapply Ha; eauto.
-    + eapply IH; eauto.
+      * right. subst l. exists (x :: vs), t, t', ts'.
+        repeat split; auto.
+    + right. exists nil, x, x', l.
+      repeat split; auto.
 Qed.
 
 (* progress *)
-Lemma progress :
+Theorem progress :
   forall t T,
-    <[ nil |-- t \in T ]> ->
-    value t \/ exists t', t --> t'.
+  <[ nil |-- t \in T ]> ->
+  value t \/ exists t', t --> t'.
 Proof.
-  intros t.
-  induction t using tm_ind2; intros T Hty.
-  - inversion Hty; subst; clear_existT.
-    rewrite nth_error_nil in H0. discriminate H0.
-  - left. constructor.
-  - inversion Hty; subst; clear_existT.
-    destruct (IHt1 (TyArr T1 T) H1) as [Hv1 | [t1' Hs1]].
-    + destruct (IHt2 T1 H3) as [Hv2 | [t2' Hs2]].
-      * destruct (canonical_forms_arr _ _ _ _ H1 Hv1) as [t1'' ->].
-        right. eexists. constructor. assumption.
-      * right. eexists. apply ST_App2; [exact Hv1 | exact Hs2].
-    + right. eexists. apply ST_App1; exact Hs1.
-  - left. constructor.
-  - inversion Hty; subst; clear_existT.
-    destruct (IHt (TyForall T1) H1) as [Hv | [t1' Hs]].
-    + destruct (canonical_forms_forall _ _ _ H1 Hv) as [t1'' ->].
-      right. eexists. apply ST_TyAppTyAbs.
-    + right. eexists. apply ST_TyApp1. exact Hs.
-  - inversion Hty; subst; clear_existT.
-    destruct (vec_progress p ts (Forall_combine3 p ts Ts H H3)) as [Hallv | [i [t' Hstep]]].
-    + left. constructor. assumption.
-    + right. eexists. eapply ST_Tuple; eassumption.
-  - inversion Hty; subst; clear_existT.
-    destruct (IHt (TyProd p Ts) H3) as [Hv | [t1' Hs]].
-    + destruct (canonical_forms_prod _ _ _ _ H3 Hv) as [ts ->].
-      assert (Hallval : V.Forall value ts) by (inversion Hv; subst; clear_existT; assumption).
-      right. eexists. eapply (ST_ProjRed p i ts). exact Hallval.
-    + right. eexists. apply ST_Proj1; exact Hs.
-  - inversion Hty; subst; clear_existT.
-    destruct (IHt (V.nth Ts i) H3) as [Hv | [t1' Hs]].
-    + left. constructor. assumption.
-    + right. eexists. apply ST_Inj1; exact Hs.
-  - inversion Hty; subst; clear_existT.
-    destruct (IHt (TySum p Ts) H4) as [Hv | [t1' Hs]].
-    + destruct (canonical_forms_sum _ _ _ _ H4 Hv) as [i0 [t0 ->]].
-      right. eexists. eapply ST_CaseInjRed.
-      * reflexivity.
-      * inversion Hv; subst; clear_existT; assumption.
-      * reflexivity.
-    + right. eexists. apply ST_Case1; exact Hs.
+  intros t T H.
+  remember (@nil ty) as Gamma eqn:HGamma.
+  induction H using has_type_ind2; subst Gamma.
+  - destruct x; discriminate H.
+  - left. apply V_Abs.
+  - right.
+    destruct (IHhas_type1 eq_refl) as [Hv1 | [t1' Hs1]].
+    + destruct (IHhas_type2 eq_refl) as [Hv2 | [t2' Hs2]].
+      * apply canonical_forms_arr in H; try assumption.
+        destruct H as [t1' H]. subst t1.
+        eexists. apply ST_AppAbs; assumption.
+      * eexists. apply ST_App2; eassumption.
+    + eexists. apply ST_App1; eapply Hs1.
+  - left. apply V_TAbs.
+  - right.
+    destruct (IHhas_type eq_refl) as [Hv | [t1' Hs]].
+    + apply canonical_forms_forall in H; try assumption.
+      destruct H as [t1' H]. subst t1.
+      eexists. apply ST_TAppAbs.
+    + eexists. apply ST_TApp. eassumption.
+  - destruct (list_progress ts) as [Hvs | [vs [t [t' [ts' [Heq [Hvs Hs]]]]]]].
+    + eapply Forall2_Forall_l; try eassumption.
+      intros t T [_ IH]. apply IH. reflexivity.
+    + left. apply V_Tuple. assumption.
+    + right. subst ts.
+      eexists. apply ST_Tuple; eassumption.
+  - right.
+    destruct (IHhas_type eq_refl) as [Hv | [t1' Hs]].
+    + remember H as Hty. clear HeqHty.
+      apply canonical_forms_prod in H; try assumption.
+      destruct H as [ts H]. subst t1. inversion Hty. inversion Hv.
+      subst. destruct (Forall2_nth_error_r _ _ _ _ _ _ _ H2 H0) as [v [Hnth _]].
+      eexists. eapply ST_ProjTuple; eassumption.
+    + eexists. apply ST_Proj. eassumption.
+  - destruct (IHhas_type eq_refl) as [Hv | [t1' Hs]].
+    + left. apply V_Inj. assumption.
+    + right. eexists. apply ST_Inj. eassumption.
+  - right.
+    destruct (IHhas_type eq_refl) as [Hv | [t1' Hs]].
+    + remember H as Hty. clear HeqHty.
+      apply canonical_forms_sum in H; try assumption.
+      destruct H as [i [v H]]. subst t1.
+      inversion Hty. inversion Hv. subst.
+      destruct (Forall2_nth_error_r _ _ _ _ _ _ _ H0 H4) as [t [Hnth _]].
+      eexists. eapply ST_CaseInj; eassumption.
+    + eexists. apply ST_Case. eassumption.
+  - left. apply V_Unit.
 Qed.
-
-Print Assumptions preservation.
-Print Assumptions progress.
-Print Assumptions renTm_typing.
-Print Assumptions renTy_typing.
-Print Assumptions tmsubst_preserves_typing.
-Print Assumptions tysubst_preserves_typing.
